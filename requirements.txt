@@ -1,0 +1,10 @@
+playwright==1.49.0
+PyYAML==6.0.2
+fpdf2>=2.8.1           # render cover letters to PDF for file-upload fields
+
+# --- LLM fallback (optional) ------------------------------------------------
+# The bot works fully without an LLM (template cover letters, and unanswerable
+# screening questions are skipped). Install the SDK for whichever provider you
+# set in config.yaml -> llm.provider:
+openai>=1.40.0         # provider: openai (also Ollama / OpenRouter / LM Studio / vLLM / Azure …)
+# anthropic>=0.69.0    # provider: anthropic (Claude) — uncomment if you use it

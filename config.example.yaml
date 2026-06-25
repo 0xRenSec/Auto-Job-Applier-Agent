@@ -1,0 +1,203 @@
+# ============================================================================
+# LiJAB — LinkedIn Job Applier Bot — configuration template
+#
+# Copy this file to `config.yaml` and fill it in:   cp config.example.yaml config.yaml
+# `config.yaml` is gitignored because it holds personal data. Never put your
+# LinkedIn password here — you log in once in the real browser window (see
+# README), which also handles 2FA.
+#
+# ⚠️  Automating LinkedIn Easy Apply violates LinkedIn's Terms of Service and can
+#     get your account restricted. Start with `dry_run: true` and a small cap.
+# ============================================================================
+
+# --- LLM (optional, works with ANY provider) ---------------------------------
+# Used for two things: writing tailored cover letters (cover_letter.mode: llm)
+# and answering screening questions the maps below can't (answers.llm_fallback).
+# The bot runs fine WITHOUT this — cover letters fall back to a template and
+# unanswerable required questions are skipped (never guessed).
+#
+# `provider: openai` speaks the OpenAI Chat Completions protocol, which also
+# covers Ollama, LM Studio, vLLM, OpenRouter, Together, Groq and Azure OpenAI —
+# just set `base_url`. `provider: anthropic` uses the native Claude API.
+llm:
+  provider: openai                 # openai | anthropic
+  model: "gpt-4o-mini"             # e.g. gpt-4o-mini | claude-3-5-sonnet-latest | llama3.1
+  base_url: ""                     # blank = api.openai.com; e.g. http://localhost:11434/v1 for Ollama
+  api_key_env: "OPENAI_API_KEY"    # name of the env var (in .env) holding the key
+  # api_key_ref: "op://Vault/Item/credential"   # optional: read the key from 1Password instead
+
+# --- 1Password auto-login (OPTIONAL) -----------------------------------------
+# Only needed for hands-free login + 2FA. If you skip this, just log in manually
+# once with `python -m src.main --login` and delete/ignore this whole section.
+# Requires the `op` CLI and OP_SERVICE_ACCOUNT_TOKEN in .env.
+onepassword:
+  vault: "Private"
+  item: "LinkedIn"
+  email_ref: "op://Private/LinkedIn/username"
+  password_ref: "op://Private/LinkedIn/password"
+  # email_override: "you@example.com"   # log in with this instead of the vault username
+
+# --- Cover letters -----------------------------------------------------------
+cover_letter:
+  # template = offline, no API key (fills a template with matched skills)
+  # llm      = the LLM above writes a tailored letter from data/profile.md + the job desc
+  # off      = don't generate cover letters
+  mode: template
+  profile_path: "data/profile.md"    # your background — source material for letters & LLM answers
+  output_dir: "data/cover_letters"   # generated letters are cached here
+  upload_pdf: false                  # also render a PDF for file-upload fields (needs fpdf2)
+
+# --- Résumé / CV -------------------------------------------------------------
+# static   = always upload applicant.resume_path as-is (default; no LLM needed).
+# tailored = for each job, the LLM rewrites your CV from data/profile.md to lead
+#            with the experience matching the job description, renders it to PDF
+#            and uploads that. It may only re-order / re-emphasise / rephrase
+#            facts already in your profile — it never invents anything. Falls
+#            back to the static file if the LLM isn't configured. Needs the
+#            `llm:` block above and fpdf2.
+resume:
+  mode: static                       # static | tailored
+  output_dir: "data/resumes"         # tailored CVs are cached here per job
+
+# --- Job search criteria -----------------------------------------------------
+search:
+  # Each keyword becomes a separate LinkedIn search.
+  keywords:
+    - "Application Security"
+    - "DevSecOps"
+    - "Security Engineer"
+
+  # LinkedIn geo labels, searched in order. Examples: "Sweden", "European Union",
+  # "European Economic Area", "United States", "Worldwide".
+  locations:
+    - "European Union"
+
+  # Remote filter. Any of: on_site | remote | hybrid
+  workplace_types:
+    - remote
+
+  # Date posted. One of: past_24h | past_week | past_month | any
+  date_posted: past_week
+
+  # Experience levels (optional). Any of:
+  #   internship | entry | associate | mid_senior | director | executive
+  experience_levels:
+    - mid_senior
+    - director
+
+  # true  = only LinkedIn "Easy Apply" jobs.
+  # false = also collect external postings; external_apply (below) tries them.
+  easy_apply_only: false
+
+  # Apply only to jobs whose TITLE contains one of these (case-insensitive).
+  # Keeps the bot on-target. Leave empty [] to disable.
+  required_title_keywords:
+    - "security"
+    - "appsec"
+    - "devsecops"
+
+  # Skip a job if its title/description contains any of these.
+  blocklist_keywords:
+    - "clearance"
+    - "citizen"
+    - "intern"
+    - "manager"        # remove if you DO want management roles
+
+# --- External (non-Easy-Apply) applications ----------------------------------
+# When a job has no Easy Apply button, try the company's own ATS in the same
+# browser. Tractable: Greenhouse, Lever, Ashby, Teamtailor, Recruitee, Workable
+# and small forms with a CV upload. Account-based ATSes (Workday, SmartRecruiters,
+# iCIMS), login walls and CAPTCHAs are deferred and logged for manual follow-up.
+external_apply:
+  enabled: true
+  max_fields: 25        # defer forms with more fields than this
+
+# --- Safety / anti-detection rails -------------------------------------------
+safety:
+  # Master switch. true = fill every form but DON'T click final Submit (screenshot
+  # + log instead). RUN LIKE THIS FIRST and review data/screenshots/.
+  dry_run: true
+
+  max_applications_per_run: 15      # cap per run
+  max_applications_per_day: 30      # cap across all runs in a calendar day
+
+  # Skip a job if you already SUBMITTED to the same title @ company, even under a
+  # different LinkedIn job_id. Stops job-board aggregators (which repost the same
+  # role with fresh ids) from burning your daily cap on duplicates.
+  dedupe_by_role: true
+
+  # Random human-like pauses, seconds (min, max).
+  delay_between_actions: [1.5, 4.0]
+  delay_between_jobs: [8.0, 20.0]
+
+  # Visible browser window (recommended — looks human and lets you watch / solve
+  # the occasional checkpoint). Set true only once you trust it.
+  headless: false
+
+# --- Your application materials ----------------------------------------------
+applicant:
+  resume_path: "data/resume.pdf"     # path to YOUR CV (gitignored)
+  cover_letter_path: ""              # optional pre-written letter to upload
+
+  # Plain-text fields some forms ask for.
+  first_name: "Jane"
+  last_name: "Doe"
+  email: "jane.doe@example.com"
+  phone_country_code: "United States (+1)"
+  phone: "5551234567"
+  city: "Remote"
+  country: "United States"
+  address: "Remote"
+  postal_code: ""
+  linkedin_url: "https://www.linkedin.com/in/your-handle"
+
+# --- Answers to screening questions ------------------------------------------
+# Each question is matched against the substrings below (case-insensitive, longest
+# match wins). If NO match is found for a REQUIRED question and the LLM can't
+# answer it truthfully, the job is SKIPPED — the bot never guesses on required
+# fields. Edit these to fit your own profile.
+answers:
+  experience_years:
+    default: 5
+    overrides:
+      "application security": 5
+      "devsecops": 4
+      "python": 3
+
+  yes_no:
+    "authorized to work": true
+    "require sponsorship": false       # set true if you DO need sponsorship
+    "willing to relocate": false
+    "comfortable working remotely": true
+    "background check": true
+    "speak english": true
+    # Languages you do NOT speak -> answer No truthfully, e.g.:
+    # "german": false
+
+  text:
+    "notice period": "1 month"
+    "current salary": "Negotiable"
+    "expected salary": "Negotiable"
+    "salary expectation": "Negotiable"
+
+  # Default for a single-select dropdown we can't resolve. "" = skip the job
+  # rather than pick blindly.
+  dropdown_default: ""
+
+  # DANGER: if true, answer the affirmative on unmatched REQUIRED Yes/No
+  # questions. This can assert untrue things (languages, clearances, citizenship)
+  # — leave false so the bot skips instead of fabricating.
+  default_positive: false
+  always_fill: false
+
+  # LLM fallback for required questions the maps above can't answer. Uses the
+  # `llm:` section. Answers ONLY from data/profile.md and skips when it can't
+  # answer truthfully. Decisions cached/audited in data/llm_answers.json.
+  llm_fallback:
+    enabled: false
+
+# --- Storage -----------------------------------------------------------------
+storage:
+  database_path: "data/applied.db"
+  log_dir: "logs"
+  screenshot_dir: "data/screenshots"

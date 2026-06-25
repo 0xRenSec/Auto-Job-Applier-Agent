@@ -1,0 +1,38 @@
+# Secrets & personal config
+config.yaml
+.env
+
+# Browser session (contains your logged-in LinkedIn cookies — NEVER commit)
+browser_profile/
+storage_state.json
+
+# Data & logs
+data/*.db
+data/*.csv
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# OS
+.DS_Store
+
+# Personal data — your CV, profile, applications DB, screenshots, letters.
+# Everything in data/ is ignored EXCEPT the placeholder README that tells you
+# what goes there.
+data/*
+!data/README.md
+browser_profile.corrupt-*/
+
+# Your CV / résumé (personal — keep it out of version control)
+CV/
+
+# IDE
+.idea/
+*.iml

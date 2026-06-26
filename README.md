@@ -179,6 +179,8 @@ selectors are the usual culprit — they're centralized at the top of
 
 ## License & disclaimer
 
+Released under the **MIT License** — see [LICENSE](LICENSE).
+
 For personal, educational use. You are responsible for complying with LinkedIn's
 Terms of Service and all applicable laws. The authors accept no liability for
 account restrictions or any other consequence of use.

@@ -33,6 +33,8 @@ browser_profile.corrupt-*/
 # Your CV / résumé (personal — keep it out of version control)
 CV/
 
-# IDE
+# IDE / editor & AI-assistant local settings
 .idea/
 *.iml
+.vscode/
+.claude/

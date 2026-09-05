@@ -1,14 +1,62 @@
-"""Shared helpers: human-like delays and logging."""
+"""Shared helpers: human-like delays, logging, filenames, and the run lock."""
 from __future__ import annotations
 
 import logging
 import os
 import random
+import re
 import time
 from datetime import datetime
 from pathlib import Path
 
 log = logging.getLogger("lijab")
+
+
+def sanitize_filename(name: str, max_len: int = 80) -> str:
+    """Make an arbitrary string (job_id etc.) safe to use as a filename."""
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", str(name)).strip("._") or "unnamed"
+    return safe[:max_len]
+
+
+# Characters LLMs love that FPDF's latin-1 core fonts can't render. Mapping them
+# to ASCII beats the '?' that encode(..., "replace") would produce.
+_PDF_PUNCT = {
+    "–": "-", "—": " - ", "―": " - ", "−": "-",
+    "‘": "'", "’": "'", "‚": "'", "“": '"', "”": '"',
+    "„": '"', "…": "...", "•": "-", "·": "-",
+    " ": " ", "​": "", "﻿": "", "→": "->", "✓": "+",
+}
+
+
+def normalize_for_pdf(text: str) -> str:
+    """Replace common non-latin-1 punctuation before rendering with core fonts."""
+    for src, dst in _PDF_PUNCT.items():
+        text = text.replace(src, dst)
+    return text
+
+
+def acquire_run_lock(lock_path: str = "data/.lijaa.lock"):
+    """OS-level single-instance lock so two runs can't double-apply.
+
+    Returns an open file handle that must be kept alive for the whole run
+    (the lock dies with the process, even on a crash), or None if another
+    instance already holds it.
+    """
+    p = Path(lock_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(p, "a+")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    return fh
 
 
 def setup_logging(log_dir: str) -> None:

@@ -59,6 +59,8 @@ TRACTABLE_ATS = {
     "teamtailor": (".teamtailor.com",),
     "recruitee": (".recruitee.com",),
     "workable": ("apply.workable.com",),
+    "zohorecruit": (".zohorecruit.com", ".zohorecruit.eu"),
+    "ceipal": ("candidateportal.ceipal.com", ".ceipal.com"),
 }
 # Account-based / multi-step wizard ATSes — deferred to manual in v1.
 DEFERRED_ATS = {
@@ -129,8 +131,12 @@ def resolve_answer(spec: FieldSpec, cfg: dict, llm=llm_answer):
     ans = cfg["answers"]
 
     if spec.kind == "checkbox":
-        # Consent/agree boxes: tick when required, never volunteer otherwise.
-        return True if spec.required else None
+        # Never volunteer an optional box. A required one is ticked only when
+        # it is consent / acknowledgement or has an explicit yes_no answer —
+        # a factual declaration ("I am a US citizen") is deferred instead.
+        if not spec.required:
+            return None
+        return True if answers.checkbox_answer(spec.label, ans) else None
 
     if spec.kind in ("select", "radio"):
         return _resolve_choice(spec, cfg, llm)
@@ -189,7 +195,7 @@ def _resolve_choice(spec: FieldSpec, cfg: dict, llm) -> str | None:
             code = m.group(0)
             choice = next((o for o in real if f"({code})" in o or o.endswith(code)), None)
     if choice is None:
-        choice = answers.language_level_answer(label, real)
+        choice = answers.language_level_answer(label, real, ans)
     if choice is None and spec.required:
         choice = llm(label, real, cfg)
     if choice is None and spec.required and ans.get("default_positive"):
@@ -287,7 +293,9 @@ def _run_ats_flow(p: Page, card: JobCard, cfg: dict, delays: list[float],
     form = _find_application_form(p, deadline)
     if form is None:
         return ApplyResult.EXTERNAL, f"no application form found ({ats})"
-    if kind == "unknown" and not form.locator("input[type=file]").count():
+    # The CV upload is often a styled button whose real <input type=file> lives
+    # OUTSIDE the <form> — so check the whole page, not just the form.
+    if kind == "unknown" and not p.locator("input[type=file]").count():
         return ApplyResult.EXTERNAL, f"unknown ATS without a CV upload ({ats})"
     max_fields = int(cfg.get("external_apply", {}).get("max_fields", DEFAULT_MAX_FIELDS))
     n_fields = _count_visible_fields(form)
@@ -405,7 +413,7 @@ SEL_FIELDS = (
 
 
 def _find_application_form(p: Page, deadline: float) -> Locator | None:
-    form = _pick_form(p)
+    form = _pick_form_polling(p, deadline)
     if form is not None:
         return form
     # Landing pages (Lever 'Apply for this job', Ashby/Teamtailor 'Apply')
@@ -417,7 +425,23 @@ def _find_application_form(p: Page, deadline: float) -> Locator | None:
             _settle(p, deadline)
         except Exception as exc:
             log.debug("ATS apply click failed: %s", exc)
-        return _pick_form(p)
+        return _pick_form_polling(p, deadline)
+    return None
+
+
+def _pick_form_polling(p: Page, deadline: float) -> Locator | None:
+    """_pick_form, but give SPA/React forms (e.g. Ashby) a few seconds to render
+    before giving up. Only adds patience — never changes which form is chosen."""
+    for _ in range(4):
+        form = _pick_form(p)
+        if form is not None:
+            return form
+        if time.monotonic() > deadline:
+            break
+        try:
+            p.wait_for_selector(SEL_FIELDS, timeout=2_500)
+        except Exception:
+            pass
     return None
 
 
@@ -585,7 +609,8 @@ def _fill_form(p: Page, form: Locator, card: JobCard, cfg: dict,
         except Exception as exc:
             log.debug("external radio fill failed: %s", exc)
 
-    # 5) checkboxes — tick required (consent) boxes only
+    # 5) checkboxes — required consent boxes are ticked; a required factual
+    # declaration with no explicit yes_no answer defers the application.
     cloc = form.locator("input[type=checkbox]")
     for i in range(cloc.count()):
         if time.monotonic() > deadline:
@@ -593,7 +618,13 @@ def _fill_form(p: Page, form: Locator, card: JobCard, cfg: dict,
         el = cloc.nth(i)
         try:
             if _el_required(el) and not _safe_is_checked(el):
-                _safe_check(el)
+                label, _ = _label_for(el)
+                if answers.checkbox_answer(label, cfg["answers"]) is True:
+                    _safe_check(el)
+                else:
+                    log.info("[external checkbox] %r is a declaration with no yes_no "
+                             "answer — deferring.", label[:80])
+                    note_unanswered(label)
         except Exception as exc:
             log.debug("external checkbox failed: %s", exc)
 
@@ -611,6 +642,8 @@ def _upload_files(form: Locator, cfg: dict, card: JobCard, cover_text: str | Non
     cover_pdf = None
     if cover_text and cfg.get("cover_letter", {}).get("upload_pdf"):
         cover_pdf = cover_letter.render_pdf(cover_text, card.job_id, cfg)
+    # Fall back to the user's pre-written letter when nothing was generated.
+    cover_pdf = cover_pdf or cfg["applicant"].get("cover_letter_path") or None
     for i in range(files.count()):
         el = files.nth(i)
         label, _ = _label_for(el)
@@ -808,25 +841,33 @@ def _submit(p: Page, form: Locator, card: JobCard, cfg: dict,
         return ApplyResult.EXTERNAL, f"no submit button found ({ats})"
     pre_url = p.url
     btn.click()
-    human_delay([2, 4])
+    # After the click the ATS may already have accepted the application, so no
+    # exception below may escape as a retryable FAILED — a retry would re-fill
+    # and re-submit the form (a real duplicate, ATSes show no "already applied").
     try:
-        p.wait_for_load_state("domcontentloaded", timeout=15_000)
-    except PWTimeout:
-        pass
-    for _ in range(6):
-        if _confirmed(p, pre_url):
-            _screenshot(p, card, cfg, suffix="external-submitted")
-            return ApplyResult.APPLIED, f"external ({ats})"
-        blocked = _blocking_gate(p, ats)
-        if blocked:
-            _screenshot(p, card, cfg, suffix="external-blocked")
-            return ApplyResult.EXTERNAL, blocked
-        if time.monotonic() > deadline:
-            break
-        p.wait_for_timeout(2_000)
-    # Ambiguous: it may or may not have gone through — FAILED so the run retries.
+        human_delay([2, 4])
+        try:
+            p.wait_for_load_state("domcontentloaded", timeout=15_000)
+        except PWTimeout:
+            pass
+        for _ in range(6):
+            if _confirmed(p, pre_url):
+                _screenshot(p, card, cfg, suffix="external-submitted")
+                return ApplyResult.APPLIED, f"external ({ats})"
+            blocked = _blocking_gate(p, ats)
+            if blocked:
+                _screenshot(p, card, cfg, suffix="external-blocked")
+                return ApplyResult.EXTERNAL, blocked
+            if time.monotonic() > deadline:
+                break
+            p.wait_for_timeout(2_000)
+    except Exception as exc:
+        log.warning("[external] post-submit verification error on %s: %s", card.job_id, exc)
+    # Ambiguous: we already clicked Submit, so it may well have gone through.
+    # Record as a terminal EXTERNAL (already_seen blocks it) — retrying would
+    # re-click Submit and risk a DUPLICATE application. Verify manually.
     _screenshot(p, card, cfg, suffix="external-unverified")
-    return ApplyResult.FAILED, f"external submission not confirmed ({ats})"
+    return ApplyResult.EXTERNAL, f"submitted but not confirmed — verify manually ({ats})"
 
 
 def _submit_button(p: Page, form: Locator) -> Locator | None:

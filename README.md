@@ -1,186 +1,219 @@
-# LiJAB — LinkedIn Job Applier Bot
+# Auto Job Applier Agent
 
-Automates LinkedIn **Easy Apply** (and, optionally, external company ATSes) for a
-search you define — fills the multi-step forms from your config, answers
-screening questions truthfully, generates per-job cover letters, and tracks
-everything so it never applies twice.
+A bot that applies to jobs on LinkedIn for you. You tell it who you are, which
+job titles to look for and where; it searches LinkedIn, opens the **Easy
+Apply** forms, fills them in from your details, attaches your CV, answers the
+screening questions from what you wrote, adds a cover letter and keeps a
+record so it never applies to the same job twice.
 
-Plug-and-play: everything personal lives in `config.yaml` + `data/profile.md`
-(both gitignored). Works with **any LLM** — or none at all.
+Your details live in two files you edit on your own computer: `config.yaml`
+(who you are, what to search for, your standard answers) and
+`data/profile.md` (your background, in your own words). The bot types those
+details into application forms. Only if you enable an AI provider does it
+send your profile text, together with the job posting, to that provider;
+nothing else leaves your computer.
+Your LinkedIn password is never stored anywhere: you sign in once in a normal
+browser window.
+
+No programming needed. If you can edit a text file, you can run this.
 
 ---
 
 ## ⚠️ Read this first
 
-- **Automating LinkedIn Easy Apply violates LinkedIn's Terms of Service.** LinkedIn
-  detects automation and can **restrict or ban your account**. Use at your own risk.
-  The bot includes anti-detection rails (session reuse, human-like delays, a daily
-  cap, a visible browser) to *reduce* — not eliminate — that risk.
-- **Always run with `dry_run: true` first** (the default). It fills every form and
-  screenshots it but does **not** submit, so you can verify answers before going live.
-- **Start with a small cap** and watch the browser the first few runs.
-- It **never guesses on required questions.** If it can't answer truthfully from your
-  config/profile, it skips the job and logs it for manual follow-up.
+- **Automating LinkedIn violates LinkedIn's Terms of Service.** LinkedIn detects
+  automation and can restrict or close your account. Use at your own risk. The
+  bot behaves as human-like as it can (one saved session, random pauses, a daily
+  limit, a visible browser window), which reduces the risk but cannot remove it.
+- **The first runs are dry runs.** The bot fills every form and takes a
+  screenshot but does **not** press the final Submit, so you can check its
+  answers first. It does still type into LinkedIn's forms, so a dry run is for
+  checking answers, not for staying invisible.
+- **With the default settings it never guesses.** If a required question can't
+  be answered truthfully from what you wrote, it skips that job and tells you
+  why, so you can add the answer and try again.
 
 ---
 
-## Features
+## Quick start
 
-- LinkedIn Easy Apply automation across multiple keywords / locations / filters
-- Optional **external ATS** apply (Greenhouse, Lever, Ashby, Teamtailor, Recruitee,
-  Workable, and simple upload forms)
-- **Any LLM** for cover letters + hard screening questions — OpenAI, Anthropic,
-  or local (Ollama / LM Studio / vLLM) and gateways (OpenRouter, Together, Azure)
-- Truthful answering: config maps → LLM (profile-grounded) → **skip** (never fabricate)
-- Per-job cover letters (offline template or LLM), optional PDF render for upload fields
-- **Per-job tailored CV** (optional): the LLM re-orders/re-emphasises your profile
-  to match each job description and uploads a tailored PDF — never inventing facts
-- SQLite tracking with **role-level dedup** (catches aggregator reposts under new IDs)
-- Optional 1Password auto-login with TOTP 2FA
-- Safety rails: dry-run, per-run + per-day caps, randomized human-like delays
+Setup installs everything, opens your two files, checks them, signs you in to
+LinkedIn once, and runs one test that submits nothing.
 
----
+**Windows**
 
-## Quickstart
+1. Right-click the downloaded ZIP → **Extract All**, and open the extracted folder.
+2. Install Python: [Windows steps](GETTING_STARTED.md#windows).
+3. Double-click `setup.bat` and follow the window.
 
-```bash
-# 1. Install
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-playwright install chromium
+**Mac**
 
-# 2. Configure
-cp config.example.yaml config.yaml      # then edit it (see below)
-cp profile.example.md data/profile.md   # your background, for letters + LLM answers
-#   put your CV at the path in applicant.resume_path (default: data/resume.pdf)
+1. Double-click the downloaded ZIP to extract it.
+2. Install Python: [Mac steps](GETTING_STARTED.md#mac).
+3. Open **Terminal** (Command + Space, type `Terminal`), type `bash ` with the
+   space, drag `setup.sh` from the extracted folder into the window, press
+   Enter, and follow the window.
 
-# 3. Log in once (saves the session; handles 2FA in the window)
-python -m src.main --login
+**In the setup window** you replace the examples in the three **START HERE**
+parts of `config.yaml`, write your background in `data/profile.md`, copy your
+CV to `data/resume.pdf`, and press a key. Setup checks the files, opens a
+browser for you to sign in to LinkedIn (the password is never stored), and
+runs the test. A finished test ends with `1 applications would-submit (dry
+run)`; the picture ending in `-dryrun.png` in `data/screenshots` shows the
+form.
 
-# 4. DRY RUN — fills forms, screenshots, does NOT submit. Review data/screenshots/.
-python -m src.main
-
-# 5. Go live with a small cap once you're happy
-python -m src.main --live --max 5
-
-# 6. Normal live run (uses caps from config.yaml)
-python -m src.main --live
-```
-
-The first live run: keep `headless: false` and **watch the window**. If LinkedIn
-shows a captcha or "is this you?" check, solve it in the window — the bot waits.
+A test still types your details into LinkedIn's form; it just never clicks
+Submit. Every click, and what to do when something stops:
+[GETTING_STARTED.md](GETTING_STARTED.md).
 
 ---
 
-## Configure it
+## More commands
 
-Everything is in `config.yaml` (copied from `config.example.yaml`, which is fully
-commented). The essentials:
+Open a command window in the project folder first. Windows: open the folder in
+File Explorer, click the address bar, type `cmd`, press Enter. Mac: open
+Terminal, type `cd ` with the space, drag the project folder into the window,
+press Enter.
 
-- **`search`** — keywords, locations, remote/date/experience filters, title
-  allow/block lists.
-- **`applicant`** — name, email, phone, location, CV path, LinkedIn URL.
-- **`answers`** — map screening-question substrings to answers
-  (`experience_years`, `yes_no`, `text`, salary). Anything unmatched and required
-  is skipped unless the LLM can answer it from your profile.
-- **`safety`** — `dry_run`, caps, delays, `dedupe_by_role`.
+| What to do | Windows | Mac / Linux |
+|---|---|---|
+| Check your files | `run.bat --check` | `bash run.sh --check` |
+| Sign in again | `run.bat --login` | `bash run.sh --login` |
+| Test one form (submits nothing) | `run.bat --max 1` | `bash run.sh --max 1` |
+| Test again after fixing answers | `run.bat --max 1 --retry-skipped --retry-dry-run` | `bash run.sh --max 1 --retry-skipped --retry-dry-run` |
+| Submit up to three real applications | `run.bat --live --max 3` | `bash run.sh --live --max 3` |
+| Everyday use (limits from `config.yaml`) | `run.bat --live` | `bash run.sh --live` |
+| Also submit the jobs you already tested | `run.bat --live --retry-dry-run` | `bash run.sh --live --retry-dry-run` |
+| Retry jobs that failed half-way | `run.bat --recover` | `bash run.sh --recover` |
+| Every option | `run.bat --help` | `bash run.sh --help` |
 
-### Using any LLM (optional)
-
-The bot is fully functional without an LLM. Add one to write tailored cover
-letters (`cover_letter.mode: llm`) and answer screening questions the maps miss
-(`answers.llm_fallback.enabled: true`). Configure the `llm:` block:
-
-```yaml
-# OpenAI
-llm: { provider: openai, model: gpt-4o-mini, api_key_env: OPENAI_API_KEY }
-
-# Local Ollama (no key needed)
-llm: { provider: openai, model: llama3.1, base_url: "http://localhost:11434/v1", api_key_env: OLLAMA_KEY }
-
-# Anthropic (Claude)  —  pip install anthropic
-llm: { provider: anthropic, model: claude-3-5-sonnet-latest, api_key_env: ANTHROPIC_API_KEY }
-```
-
-Put the key in a `.env` file (gitignored): `OPENAI_API_KEY=sk-...`. The LLM is
-instructed to answer **only** from `data/profile.md` and to decline (→ skip the
-job) when it can't answer truthfully.
-
-### Tailored CV per job (optional)
-
-With `resume.mode: tailored`, the LLM rewrites your CV from `data/profile.md` for
-each job — leading with the most relevant experience and mirroring the job's
-terminology — renders it to a PDF, and uploads that instead of the static file.
-It may only **re-order, re-weight and rephrase facts already in your profile**;
-it never invents experience, employers, dates or numbers. No LLM configured (or
-any failure) → it falls back to your static `applicant.resume_path`. Keep
-`mode: static` to always upload your fixed CV.
-
-### 1Password auto-login (optional)
-
-For hands-free login you can store your LinkedIn credentials (+ a TOTP field) in
-1Password and let the bot read them via the `op` CLI. Set the `onepassword:`
-block and put `OP_SERVICE_ACCOUNT_TOKEN` in `.env`. Otherwise just use
-`python -m src.main --login` and ignore that section.
+Without `--live`, a run submits nothing as long as `dry_run: true` stays in
+`config.yaml`. The retry options let previously skipped or tested jobs be
+attempted again if the search finds them; they don't limit the run to those
+jobs. Tests count towards the daily limit. Stop a run with **Ctrl + C**. The
+newest file in `logs` lists every answer given and every job skipped, with
+the reason.
 
 ---
 
-## Where things go
+## Where things are
 
 | Path | What |
 |---|---|
-| `config.yaml` | your config (gitignored) |
-| `data/profile.md` | your background, for cover letters + LLM answers (gitignored) |
-| `data/applied.db` | SQLite log of every job (applied / dry_run / skipped / external / failed) |
-| `data/cover_letters/` | generated cover letters |
-| `data/resumes/` | per-job tailored CVs (when `resume.mode: tailored`) |
-| `data/screenshots/` | one screenshot per completed application |
-| `logs/` | per-run logs |
-| `browser_profile/` | persistent Chrome profile = your saved LinkedIn session |
-
-Inspect what happened:
-
-```bash
-sqlite3 data/applied.db \
-  "SELECT applied_at,status,title,company,reason FROM applications ORDER BY applied_at DESC LIMIT 20;"
-```
+| `config.yaml` | Who you are, what to search for, your answers (personal, never uploaded) |
+| `data/resume.pdf` | Your CV |
+| `data/profile.md` | Your background for cover letters and AI answers |
+| `data/screenshots/` | A picture of the final step of each completed form |
+| `data/cover_letters/` | The cover letters it wrote |
+| `data/applied.db` | The record of every job: applied, skipped (and why), failed |
+| `logs/` | A log file per run |
+| `browser_profile/` | Your saved LinkedIn session — keep private |
 
 ---
 
-## Tests
+## Changing what it searches for
 
-Browser-free unit tests (no network, no LinkedIn):
+Everything is in the `search:` section of `config.yaml`:
 
-```bash
-.venv/bin/python tests/test_external_apply.py
-.venv/bin/python tests/test_tracker_dedupe.py
-.venv/bin/python tests/test_resume.py
+```yaml
+search:
+  keywords:                      # one LinkedIn search per line
+    - "Project Manager"
+    - "Product Owner"
+  locations:                     # LinkedIn place names, searched in order
+    - "Sweden"
+    - "European Union"
+  workplace_types: [remote]      # remote | hybrid | on_site
+  date_posted: past_week         # past_24h | past_week | past_month | any
+  experience_levels: [mid_senior]   # internship | entry | associate | mid_senior | director | executive
+  required_title_keywords: ["project", "product"]   # the title must contain one of these
+  blocklist_keywords: ["clearance", "internship"]   # skip if title/description contains one
+  blocklist_title_keywords: ["director"]            # skip if the TITLE contains this word
 ```
+
+Change the role by changing `keywords` and `required_title_keywords`; change
+the place by changing `locations`. Run `--check` afterwards to see what the
+bot understood.
+
+---
+
+## Optional extras
+
+Explained in `config.yaml`; apart from the template cover letter they are off
+by default:
+
+- **AI help** (`llm:`) — any provider: OpenAI, Claude, a local model (Ollama),
+  or the Codex CLI with a ChatGPT login. Enables tailored cover letters
+  (`cover_letter.mode: llm`), AI answers to screening questions the lists miss
+  (`answers.llm_fallback`), a CV re-ordered per job (`resume.mode: tailored`),
+  and remote-work screening (`jd_screen`). The AI is only ever allowed to use
+  facts from `data/profile.md`; when it can't answer truthfully it says so and
+  the job is skipped. Put your API key in a file called `.env`:
+  `OPENAI_API_KEY=sk-...`
+- **Remote-work screening** (`jd_screen:`) — skip postings that say "must be
+  based in Texas", "US residents only" or "3 office days a week" when you
+  live somewhere else. Set `home_country` and `allowed_regions`.
+- **Company websites** (`external_apply:`) — when a job has no Easy Apply
+  button, try the company's own application site (Greenhouse, Lever, Ashby,
+  Teamtailor, Recruitee, Workable and simple upload forms). Turn on by setting
+  `search.easy_apply_only: false`.
+- **Notion mirror** (`notion:`) — copy every record into a Notion database.
+- **1Password auto-login** (`onepassword:`) — hands-free sign-in on an
+  unattended server. Everyone else: `run.bat --login` once is all it takes.
+- **Run every morning** — `scripts/daily_run.sh` is a ready-made Bash script
+  for cron or launchd. **It submits for real** (it passes `--live
+  --retry-skipped`), so only schedule it once your dry runs look right. On
+  Windows, schedule `run.bat --live --retry-skipped` in Task Scheduler instead.
 
 ---
 
 ## How it answers screening questions
 
-`config.yaml → answers` maps question substrings to answers. For a required
-question with no match, the LLM (if enabled) may answer it **from your profile
-only**; if it can't, the whole job is **skipped** and logged. The bot never
-guesses the affirmative on required questions — that's how you avoid sending
-untrue claims (languages, clearances, citizenship) to employers.
+Questions are matched against the words in your `answers:` lists (not
+case-sensitive, longest match wins). Right-to-work and sponsorship questions
+are worked out from the job's country against your
+`work_authorization.countries`. If a **required** question matches nothing,
+the AI (if enabled) may answer it from `data/profile.md` only; if it can't, the
+job is **skipped** and the reason is logged. The bot never answers "Yes" just
+to get through a form — that is how you avoid telling an employer something
+untrue about languages, clearances or citizenship.
+
+Measured over several hundred real applications with an earlier version, 86%
+of skips were bespoke technical questions that should stay unanswered, and
+most of the rest were plain facts missing from the profile (notice period,
+start date, whether you drive). Adding those to `data/profile.md` lets the AI
+answer them next time.
 
 ---
 
-## When it breaks
+## Something not working?
 
-LinkedIn changes its HTML regularly. If applications start failing, the CSS
-selectors are the usual culprit — they're centralized at the top of
-`src/linkedin/easy_apply.py` and `src/linkedin/search.py`.
+See **[GETTING_STARTED.md](GETTING_STARTED.md)** for a slower walk-through and
+the common problems: Python not found, LinkedIn asking to verify it's you, the
+bot skipping everything, forms that changed.
+
+LinkedIn changes its pages regularly. If applications suddenly start failing,
+the page selectors at the top of `src/linkedin/easy_apply.py` and
+`src/linkedin/search.py` are the usual culprit — please open an issue.
 
 ---
+
+## For developers
+
+- Python 3.10+, [Playwright](https://playwright.dev/python/) for the browser,
+  SQLite for records. Entry point `python -m src.main`; modules under `src/`.
+- Unit tests: `python -m pytest tests -q` (no LinkedIn or network; the
+  modal-locator tests start a headless Chromium against local HTML).
+- Config is `config.yaml` → `src/config.py`; screening-question logic is in
+  `src/linkedin/answers.py`; the LLM transport in `src/llm_client.py` speaks
+  OpenAI-compatible, Anthropic, or the Codex CLI.
+- Nothing here phones home. The only network calls are LinkedIn, the company
+  application sites you enable, and the LLM / Notion endpoints you configure.
 
 ## License & disclaimer
 
 Released under the **MIT License** — see [LICENSE](LICENSE).
 
-For personal, educational use. You are responsible for complying with LinkedIn's
-Terms of Service and all applicable laws. The authors accept no liability for
-account restrictions or any other consequence of use.
+For personal, educational use. You are responsible for complying with
+LinkedIn's Terms of Service and all applicable laws. The authors accept no
+liability for account restrictions or any other consequence of use.

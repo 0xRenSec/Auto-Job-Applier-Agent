@@ -160,6 +160,30 @@ def test_name_mapping_no_false_positives():
     assert resolve_answer(spec, cfg, llm=_llm_must_not_be_called) == "jane.doe@example.com"
 
 
+def test_multilingual_field_labels():
+    # Localised labels that previously skipped jobs (e.g. German 'Vorname').
+    cfg = _cfg()
+    cases = {"Vorname": "Jane", "Nachname": "Doe", "Prénom": "Jane",
+             "Land": "United States", "Stadt": "Remote", "Ville": "Remote",
+             "Cognome": "Doe", "Vorname *": "Jane"}
+    for label, want in cases.items():
+        spec = FieldSpec(label=label, kind="text", required=True)
+        assert resolve_answer(spec, cfg, llm=_llm_must_not_be_called) == want, label
+
+
+def test_localised_labels_no_substring_collisions():
+    # Short foreign words must not match unrelated English labels.
+    cfg = _cfg()
+    for label in ("Landline number", "Supporting documents", "Company name", "Report reason"):
+        spec = FieldSpec(label=label, kind="text", required=False)
+        assert resolve_answer(spec, cfg, llm=_no_llm) is None, label
+
+
+def test_classify_zoho_ceipal_tractable():
+    assert classify_ats("https://acme.zohorecruit.com/jobs/Careers/1")[0] == "tractable"
+    assert classify_ats("https://candidateportal.ceipal.com/postings/2")[0] == "tractable"
+
+
 def test_type_hint_beats_unknown_label():
     cfg = _cfg()
     spec = FieldSpec(label="Din e-postadress", kind="text", input_type="email", required=True)
@@ -241,11 +265,16 @@ def test_radio_yes_no_from_config_map():
 
 
 def test_language_level_select():
-    cfg = _cfg()
     spec = FieldSpec(label="What is your proficiency in English?", kind="select",
                      options=["Basic", "Conversational", "Full professional", "Native"],
                      required=False)
+    # Answered only from answers.languages, never above the stated level.
+    cfg = _cfg(languages={"english": "fluent"})
     assert resolve_answer(spec, cfg, llm=_llm_must_not_be_called) == "Full professional"
+    cfg = _cfg(languages={"english": "intermediate"})
+    assert resolve_answer(spec, cfg, llm=_llm_must_not_be_called) == "Conversational"
+    # Nothing configured -> nothing assumed.
+    assert resolve_answer(spec, _cfg(), llm=_llm_must_not_be_called) is None
 
 
 def test_phone_country_code_select():
@@ -270,6 +299,16 @@ def test_checkbox_required_ticked_optional_skipped():
     opt = FieldSpec(label="Subscribe to job alerts", kind="checkbox", required=False)
     assert resolve_answer(req, cfg, llm=_llm_must_not_be_called) is True
     assert resolve_answer(opt, cfg, llm=_llm_must_not_be_called) is None
+
+
+def test_required_declaration_checkbox_is_deferred_not_ticked():
+    """'I am a United States citizen' is a fact, not consent: without an
+    explicit yes_no answer it must not be ticked (the field stays unanswered)."""
+    cfg = _cfg()
+    decl = FieldSpec(label="I am a United States citizen", kind="checkbox", required=True)
+    assert resolve_answer(decl, cfg, llm=_llm_must_not_be_called) is None
+    cfg["answers"]["yes_no"]["united states citizen"] = True
+    assert resolve_answer(decl, cfg, llm=_llm_must_not_be_called) is True
 
 
 # --- __main__ smoke runner (pytest not required) ---------------------------------------

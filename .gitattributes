@@ -1,0 +1,9 @@
+# Normalise line endings so the scripts work wherever the repo is unzipped.
+* text=auto
+*.bat text eol=crlf
+*.sh  text eol=lf
+*.py  text eol=lf
+*.md  text eol=lf
+*.yaml text eol=lf
+*.pdf binary
+*.png binary

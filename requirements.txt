@@ -1,6 +1,7 @@
-playwright==1.49.0
-PyYAML==6.0.2
+playwright>=1.49,<2    # a range so pip picks a build for your Python version (3.10+)
+PyYAML>=6.0.2,<7
 fpdf2>=2.8.1           # render cover letters to PDF for file-upload fields
+pytest>=8              # only needed to run the tests: python -m pytest tests -q
 
 # --- LLM fallback (optional) ------------------------------------------------
 # The bot works fully without an LLM (template cover letters, and unanswerable

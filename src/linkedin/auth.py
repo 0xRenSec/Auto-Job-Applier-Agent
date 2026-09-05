@@ -72,6 +72,18 @@ def ensure_logged_in(page: Page, cfg: dict, delays: list[float]) -> None:
         log.info("Existing LinkedIn session is valid — reusing it.")
         return
 
+    if not (cfg.get("onepassword") or {}).get("password_ref"):
+        # The normal path: no password manager configured, so the human signs
+        # in once in the visible window (2FA on their phone is fine) and the
+        # persistent browser profile keeps the session for every later run.
+        log.info("No saved LinkedIn session yet. Opening the sign-in page — please log in "
+                 "in the browser window (2FA on your phone is fine). Waiting up to 10 min.")
+        page.goto(LOGIN_URL, wait_until="domcontentloaded")
+        if not _wait_for_manual_login(page, timeout_s=600):
+            raise SystemExit("Login could not be completed. Re-run after logging in manually.")
+        log.info("Logged in to LinkedIn — the session is saved for next time.")
+        return
+
     log.info("No valid session. Attempting auto-login via 1Password credentials.")
     try:
         email, password = secrets.get_credentials(cfg)
@@ -150,6 +162,9 @@ def _wait_for_manual_login(page: Page, timeout_s: int) -> bool:
     """Poll until the human finishes logging in, on whatever page LinkedIn shows."""
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
+        if page.is_closed():
+            log.warning("Browser window was closed while waiting for login.")
+            return False
         try:
             if page.locator("input.search-global-typeahead__input").count() or (
                 "/feed" in page.url and "login" not in page.url and "authwall" not in page.url
@@ -157,7 +172,11 @@ def _wait_for_manual_login(page: Page, timeout_s: int) -> bool:
                 return True
         except Exception:
             pass  # mid-navigation; just poll again
-        page.wait_for_timeout(3000)
+        try:
+            page.wait_for_timeout(3000)
+        except Exception:  # target closed mid-wait — treat as login failure, not a crash
+            log.warning("Browser window was closed while waiting for login.")
+            return False
     return False
 
 
@@ -172,6 +191,32 @@ def _debug_screenshot(page: Page, name: str = "login-debug") -> None:
         log.debug("login debug screenshot failed: %s", exc)
 
 
+_APP_PUSH_TEXT = re.compile(r"check your linkedin app|confirm your sign.?in", re.I)
+# Deliberately does NOT match "Verify using SMS" — an SMS code can't be automated.
+_OTHER_METHOD = re.compile(r"authenticator|another way|other (way|method)"
+                           r"|verify using.*(app|code)", re.I)
+
+
+def _switch_to_totp_challenge(page: Page) -> bool:
+    """If LinkedIn chose the in-app push check, try to switch the challenge to
+    the authenticator-code entry so the 1Password TOTP can answer it."""
+    try:
+        if not page.get_by_text(_APP_PUSH_TEXT).count():
+            return False
+        log.warning("LinkedIn wants in-app approval — trying to switch to the "
+                    "authenticator code; otherwise open the LinkedIn app on your "
+                    "phone and tap Yes.")
+        for role in ("link", "button"):
+            alt = page.get_by_role(role, name=_OTHER_METHOD)
+            if alt.count() and alt.first.is_visible():
+                alt.first.click()
+                page.wait_for_timeout(2000)
+                return True
+    except Exception as exc:
+        log.debug("2FA method switch failed: %s", exc)
+    return False
+
+
 def _handle_2fa(page: Page, cfg: dict, delays: list[float]) -> None:
     """If a 2FA PIN field is showing, fill it from the 1Password TOTP."""
     # .first: both selectors can match the same input, which would trip
@@ -180,7 +225,13 @@ def _handle_2fa(page: Page, cfg: dict, delays: list[float]) -> None:
     try:
         pin.wait_for(timeout=6000)
     except PWTimeout:
-        return  # no 2FA prompt
+        # No PIN field — LinkedIn may be showing the app-push screen instead.
+        if not _switch_to_totp_challenge(page):
+            return  # no 2FA prompt (or nothing we can automate)
+        try:
+            pin.wait_for(timeout=8000)
+        except PWTimeout:
+            return  # switch didn't surface a code field; manual wait handles it
 
     code = secrets.get_otp(cfg)
     if not code:

@@ -52,6 +52,11 @@ def test_tailored_falls_back_when_llm_unavailable(monkeypatch=None):
 
 
 def test_tailored_renders_pdf_when_llm_answers():
+    try:
+        import fpdf  # noqa: F401
+    except ImportError:
+        print("SKIP  test_tailored_renders_pdf_when_llm_answers (fpdf2 not installed)")
+        return
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         cfg = _cfg(tmp, "tailored")

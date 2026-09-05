@@ -11,8 +11,9 @@ files here; the bot also writes its output here.
 | `data/profile.md` | Your background — source for cover letters, LLM answers, and tailored CVs. Copy from `../profile.example.md` | `cover_letter.profile_path` |
 
 ```bash
-cp ../profile.example.md data/profile.md   # then edit with your real details
-cp /path/to/your/cv.pdf   data/resume.pdf
+# from the project folder (the one containing config.yaml):
+cp profile.example.md data/profile.md      # then edit with your real details
+cp /path/to/your/cv.pdf  data/resume.pdf
 ```
 
 ## The bot generates (auto-created, gitignored)
